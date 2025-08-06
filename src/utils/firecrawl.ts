@@ -63,8 +63,8 @@ export class FirecrawlService {
         limit: 1,
         scrapeOptions: {
           formats: ['markdown', 'html'],
-          waitFor: 2000,
-          includeTags: ['title', 'meta', 'header', 'main', 'footer', 'nav', 'section', 'article'],
+          waitFor: 5000,
+          onlyMainContent: false
         }
       }) as ApiResponse;
 
