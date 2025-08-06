@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Globe, Download, Code, Zap } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Loader2, Globe, Download, Code, Zap, Clock, AlertTriangle } from "lucide-react";
 import { FirecrawlService } from '@/utils/firecrawl';
 import { JoomlaConverter as Converter } from '@/utils/joomlaConverter';
 
@@ -16,6 +17,48 @@ export const JoomlaConverter = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [conversionResult, setConversionResult] = useState<any>(null);
   const [showApiKey, setShowApiKey] = useState(!FirecrawlService.getApiKey());
+  const [rateLimitInfo, setRateLimitInfo] = useState<{
+    isRateLimited: boolean;
+    retryAfter: number;
+    resetTime?: Date;
+  }>({ isRateLimited: false, retryAfter: 0 });
+  const [countdown, setCountdown] = useState(0);
+
+  // Countdown timer for rate limit
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (countdown > 0) {
+      interval = setInterval(() => {
+        setCountdown(prev => {
+          if (prev <= 1) {
+            setRateLimitInfo({ isRateLimited: false, retryAfter: 0 });
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [countdown]);
+
+  const parseRateLimitError = (errorMessage: string) => {
+    const retryMatch = errorMessage.match(/retry after (\d+)s/);
+    const resetMatch = errorMessage.match(/resets at (.+)/);
+    
+    if (retryMatch) {
+      const retryAfter = parseInt(retryMatch[1]);
+      const resetTime = resetMatch ? new Date(resetMatch[1]) : undefined;
+      
+      setRateLimitInfo({
+        isRateLimited: true,
+        retryAfter,
+        resetTime
+      });
+      setCountdown(retryAfter);
+      return true;
+    }
+    return false;
+  };
 
   const handleApiKeySubmit = async () => {
     if (!apiKey.trim()) {
@@ -72,6 +115,19 @@ export const JoomlaConverter = () => {
       const scrapeResult = await FirecrawlService.scrapeWebsite(url);
       
       if (!scrapeResult.success) {
+        // Check if it's a rate limit error
+        if (scrapeResult.error?.includes('Rate limit exceeded')) {
+          const isRateLimitParsed = parseRateLimitError(scrapeResult.error);
+          if (isRateLimitParsed) {
+            toast({
+              title: "🚦 Rate Limit Reached",
+              description: `Free tier limit reached. Wait ${rateLimitInfo.retryAfter}s or upgrade your plan.`,
+              variant: "destructive",
+            });
+            return;
+          }
+        }
+        
         toast({
           title: "Scraping Failed",
           description: scrapeResult.error || "Failed to scrape website",
@@ -87,13 +143,24 @@ export const JoomlaConverter = () => {
         title: "🎉 Conversion Complete",
         description: "Website successfully converted to Joomla/YOOtheme format",
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Conversion error:', error);
-      toast({
-        title: "Conversion Failed",
-        description: "An error occurred during conversion",
-        variant: "destructive",
-      });
+      
+      // Handle rate limit errors from the catch block
+      if (error.message?.includes('Rate limit exceeded')) {
+        parseRateLimitError(error.message);
+        toast({
+          title: "🚦 Rate Limit Reached",
+          description: "Free tier limit reached. Please wait or upgrade your plan.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Conversion Failed",
+          description: "An error occurred during conversion",
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsLoading(false);
     }
@@ -177,6 +244,33 @@ export const JoomlaConverter = () => {
           </Card>
         )}
 
+        {/* Rate Limit Warning */}
+        {rateLimitInfo.isRateLimited && (
+          <Alert className="max-w-4xl mx-auto mb-6 border-destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle className="text-destructive">Rate Limit Exceeded</AlertTitle>
+            <AlertDescription>
+              <div className="space-y-2">
+                <p>You've reached Firecrawl's free tier limit (3 requests/minute).</p>
+                <div className="flex items-center gap-2 text-sm">
+                  <Clock className="h-4 w-4" />
+                  <span>Retry available in: <strong>{countdown}s</strong></span>
+                </div>
+                <p className="text-sm">
+                  <a 
+                    href="https://firecrawl.dev/pricing" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline font-medium"
+                  >
+                    Upgrade your plan
+                  </a> for higher limits or wait for the reset.
+                </p>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Main Converter */}
         {!showApiKey && (
           <div className="max-w-4xl mx-auto">
@@ -206,14 +300,19 @@ export const JoomlaConverter = () => {
                   
                   <Button
                     type="submit"
-                    disabled={isLoading}
-                    className="w-full bg-gradient-primary hover:shadow-elegant transition-smooth"
+                    disabled={isLoading || rateLimitInfo.isRateLimited}
+                    className="w-full bg-gradient-primary hover:shadow-elegant transition-smooth disabled:opacity-50"
                     size="lg"
                   >
                     {isLoading ? (
                       <>
                         <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                         Converting Website...
+                      </>
+                    ) : rateLimitInfo.isRateLimited ? (
+                      <>
+                        <Clock className="mr-2 h-5 w-5" />
+                        Retry in {countdown}s
                       </>
                     ) : (
                       <>
