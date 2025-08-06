@@ -1,6 +1,6 @@
 interface YOOthemeElement {
   type: string;
-  settings: Record<string, any>;
+  props?: Record<string, any>;
   children?: YOOthemeElement[];
 }
 
@@ -205,26 +205,31 @@ export class JoomlaConverter {
 
     return {
       type: "section",
-      settings: {
-        layout: "stacked",
-        background: "primary",
-        padding: "default"
+      props: {
+        layout: "default",
+        style: "primary",
+        padding: "default",
+        vertical_align: "middle"
       },
       children: [
         {
           type: "row",
-          settings: {},
+          props: {
+            width: "default"
+          },
           children: [
             {
               type: "column",
-              settings: { width: "100%" },
+              props: {
+                width: "1-1"
+              },
               children: [
                 {
-                  type: "subnav",
-                  settings: {
-                    menu: "mainmenu",
-                    style: "nav",
-                    items: links
+                  type: "nav",
+                  props: {
+                    style: "default",
+                    alignment: "left",
+                    margin: "default"
                   }
                 }
               ]
@@ -237,7 +242,7 @@ export class JoomlaConverter {
 
   private static createAdvancedContentSection(elements: Element[], index: number): YOOthemeElement {
     const allContent = this.extractComprehensiveContent(elements);
-    const layoutStructure = this.analyzeLayoutStructure(elements);
+    const layoutStructure = this.analyzeLayoutStructure(elements, allContent);
     
     const children: YOOthemeElement[] = [];
     const rows = this.organizeContentIntoRows(allContent, layoutStructure, elements);
@@ -245,9 +250,9 @@ export class JoomlaConverter {
     rows.forEach(row => {
       children.push({
         type: "row",
-        settings: {
-          gap: row.gap || "default",
-          alignment: row.alignment || "stretch"
+        props: {
+          width: "default",
+          gutter: row.gap || "default"
         },
         children: row.columns
       });
@@ -255,11 +260,12 @@ export class JoomlaConverter {
 
     return {
       type: "section",
-      settings: {
+      props: {
+        layout: "default",
         style: this.determineSectionStyle(elements, index),
         padding: this.determinePadding(elements),
         margin: "default",
-        background: this.extractBackgroundStyle(elements)
+        vertical_align: "top"
       },
       children
     };
@@ -391,21 +397,21 @@ export class JoomlaConverter {
     return content;
   }
 
-  private static analyzeLayoutStructure(elements: Element[]): any {
+  private static analyzeLayoutStructure(elements: Element[], content: any[]): any {
     const structure = {
       columns: 1,
       isGrid: false,
       isFlex: false,
       hasCards: false,
       alignment: 'left',
-      layout: 'single' // 'single', 'multi-column'
+      layout: 'single'
     };
 
     if (elements.length === 0) {
       return structure;
     }
 
-    const primaryElement = elements[0]; // Analyze the container of the elements
+    const primaryElement = elements[0];
     const className = primaryElement.className.toString();
 
     // Check for common grid/flexbox framework classes
@@ -417,7 +423,7 @@ export class JoomlaConverter {
         child.className.toString().includes('col-')
       );
       if (directChildrenCols.length > 1) {
-        structure.columns = directChildrenCols.length;
+        structure.columns = Math.min(directChildrenCols.length, 4);
         structure.layout = 'multi-column';
         structure.isGrid = true;
         return structure;
@@ -427,7 +433,7 @@ export class JoomlaConverter {
     if (isTailwindGrid) {
       const gridColsMatch = className.match(/grid-cols-(\d+)/);
       if (gridColsMatch && parseInt(gridColsMatch[1]) > 1) {
-        structure.columns = parseInt(gridColsMatch[1]);
+        structure.columns = Math.min(parseInt(gridColsMatch[1]), 4);
         structure.layout = 'multi-column';
         structure.isGrid = true;
         return structure;
@@ -439,20 +445,18 @@ export class JoomlaConverter {
       this.hasSignificantContent(child) && (child.tagName.toLowerCase() === 'div' || child.tagName.toLowerCase() === 'article' || child.tagName.toLowerCase() === 'section')
     );
 
-    if (significantChildren.length > 1 && significantChildren.length <= 6) { // Cap at 6 columns
+    if (significantChildren.length > 1 && significantChildren.length <= 4) {
       structure.columns = significantChildren.length;
       structure.layout = 'multi-column';
-      // Guess if it's flex or grid based on common class names
       if (className.includes('flex')) {
         structure.isFlex = true;
       }
       if (className.includes('grid')) {
-          structure.isGrid = true;
+        structure.isGrid = true;
       }
       return structure;
     }
 
-    // Fallback to single column
     return structure;
   }
 
@@ -468,17 +472,16 @@ export class JoomlaConverter {
           const columnContent = this.extractComprehensiveContent([colEl]);
           return {
             type: "column",
-            settings: {
-              width: `${100 / structure.columns}%`,
+            props: {
+              width: this.getColumnWidth(structure.columns)
             },
-            children: columnContent.map(item => this.convertContentToYOOtheme(item)),
+            children: columnContent.map(item => this.convertContentToYOOtheme(item))
           };
         });
 
         return [{
           columns,
-          gap: structure.isGrid ? "large" : "default",
-          alignment: structure.isFlex ? "center" : "stretch"
+          gap: structure.isGrid ? "large" : "default"
         }];
       }
     }
@@ -486,34 +489,44 @@ export class JoomlaConverter {
     // Fallback to single column layout
     const singleColumn = {
       type: "column",
-      settings: { width: "100%" },
+      props: {
+        width: "1-1"
+      },
       children: content.map(item => this.convertContentToYOOtheme(item))
     };
 
     return [{
       columns: [singleColumn],
-      gap: "default",
-      alignment: "stretch"
+      gap: "default"
     }];
+  }
+
+  private static getColumnWidth(columnCount: number): string {
+    switch (columnCount) {
+      case 2: return "1-2";
+      case 3: return "1-3";
+      case 4: return "1-4";
+      default: return "1-1";
+    }
   }
 
   private static convertContentToYOOtheme(item: any): YOOthemeElement {
     switch (item.type) {
       case 'heading':
         return {
-          type: "headline",
-          settings: {
+          type: "heading",
+          props: {
             content: item.content,
-            tag: item.tag,
-            style: item.level <= 2 ? "primary" : "default",
-            margin: "small"
+            heading_element: item.tag,
+            heading_style: item.level <= 2 ? "h1" : "default",
+            margin: "default"
           }
         };
       
       case 'text':
         return {
           type: "text",
-          settings: {
+          props: {
             content: item.content,
             margin: "default"
           }
@@ -522,55 +535,62 @@ export class JoomlaConverter {
       case 'image':
         return {
           type: "image",
-          settings: {
+          props: {
             image: item.src,
-            alt: item.alt,
-            width: item.width || "auto",
-            height: item.height || "auto",
-            border: "rounded"
+            image_alt: item.alt,
+            image_width: item.width || "",
+            image_height: item.height || "",
+            border_radius: "default",
+            margin: "default"
           }
         };
       
       case 'list':
         return {
           type: "list",
-          settings: {
-            items: item.items,
-            style: item.ordered ? "numbered" : "bullet",
-            marker: "default"
+          props: {
+            list_style: item.ordered ? "decimal" : "disc",
+            content: item.items.map((listItem: string) => ({ content: listItem })),
+            margin: "default"
           }
         };
       
       case 'button':
         return {
           type: "button",
-          settings: {
+          props: {
             content: item.content,
             link: item.href,
             style: item.style,
-            size: "default"
+            size: "default",
+            margin: "default"
           }
         };
       
       case 'form':
         return {
           type: "html",
-          settings: {
+          props: {
             content: `<form action="${item.action}" method="${item.method}">
               ${item.inputs.map((input: any) => 
-                `<input type="${input.type}" name="${input.name}" placeholder="${input.placeholder}" ${input.required ? 'required' : ''}>`
+                `<div class="uk-margin"><input class="uk-input" type="${input.type}" name="${input.name}" placeholder="${input.placeholder}" ${input.required ? 'required' : ''}></div>`
               ).join('\n')}
-            </form>`
+              <button class="uk-button uk-button-primary" type="submit">Submit</button>
+            </form>`,
+            margin: "default"
           }
         };
       
       case 'table':
         return {
           type: "table",
-          settings: {
-            headers: item.headers,
-            rows: item.rows,
-            style: "striped"
+          props: {
+            table_style: "striped",
+            content: {
+              head: [item.headers],
+              body: item.rows
+            },
+            margin: "default"
           }
         };
       
@@ -578,18 +598,20 @@ export class JoomlaConverter {
       case 'iframe':
         return {
           type: "video",
-          settings: {
-            source: item.src,
-            width: item.width || "100%",
-            height: item.height || "auto"
+          props: {
+            video: item.src,
+            video_width: item.width || "1920",
+            video_height: item.height || "1080",
+            margin: "default"
           }
         };
       
       default:
         return {
           type: "html",
-          settings: {
-            content: item.content || ''
+          props: {
+            content: item.content || '',
+            margin: "default"
           }
         };
     }
@@ -602,10 +624,10 @@ export class JoomlaConverter {
       el.classList.toString().includes('jumbotron')
     );
     
-    if (hasHero) return "hero";
-    if (index === 0) return "primary";
-    if (index % 2 === 0) return "default";
-    return "muted";
+    if (hasHero) return "primary";
+    if (index === 0) return "default";
+    if (index % 2 === 0) return "muted";
+    return "default";
   }
 
   private static determinePadding(elements: Element[]): string {
@@ -651,54 +673,39 @@ export class JoomlaConverter {
 
     return {
       type: "section",
-      settings: {
+      props: {
+        layout: "default",
         style: "secondary",
-        padding: "default"
+        padding: "default",
+        vertical_align: "top"
       },
       children: [
         {
           type: "row",
-          settings: {},
+          props: {
+            width: "default"
+          },
           children: [
             {
               type: "column",
-              settings: { width: "100%" },
+              props: {
+                width: "1-1"
+              },
               children: [
                 {
                   type: "text",
-                  settings: {
+                  props: {
                     content: footerText,
-                    align: "center"
+                    text_align: "center",
+                    margin: "default"
                   }
-                },
-                ...(links.length > 0 ? [{
-                  type: "subnav",
-                  settings: {
-                    style: "footer",
-                    items: links
-                  }
-                }] : [])
+                }
               ]
             }
           ]
         }
       ]
     };
-  }
-
-  private static determineColumnCount(element: Element): number {
-    const flexElements = element.querySelectorAll('[class*="flex"], [class*="grid"], [class*="col"]');
-    const directChildren = element.children.length;
-    
-    if (flexElements.length > 0) {
-      return Math.min(flexElements.length, 3);
-    }
-    
-    if (directChildren > 3) {
-      return 2;
-    }
-    
-    return 1;
   }
 
   private static extractAssets(html: string): { images: string[]; styles: string } {

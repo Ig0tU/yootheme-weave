@@ -1,6 +1,6 @@
 interface YOOthemeElement {
   type: string;
-  settings: Record<string, any>;
+  props?: Record<string, any>;
   children?: YOOthemeElement[];
 }
 
@@ -204,27 +204,32 @@ export class JoomlaConverter {
     }));
 
     return {
-      type: "header",
-      settings: {
-        layout: "stacked",
-        background: "primary",
-        padding: "default"
+      type: "section",
+      props: {
+        layout: "default",
+        style: "primary",
+        padding: "default",
+        vertical_align: "middle"
       },
       children: [
         {
           type: "row",
-          settings: {},
+          props: {
+            width: "default"
+          },
           children: [
             {
               type: "column",
-              settings: { width: "100%" },
+              props: {
+                width: "1-1"
+              },
               children: [
                 {
-                  type: "menu",
-                  settings: {
-                    menu: "mainmenu",
-                    style: "nav",
-                    items: links
+                  type: "nav",
+                  props: {
+                    style: "default",
+                    alignment: "left",
+                    margin: "default"
                   }
                 }
               ]
@@ -237,17 +242,17 @@ export class JoomlaConverter {
 
   private static createAdvancedContentSection(elements: Element[], index: number): YOOthemeElement {
     const allContent = this.extractComprehensiveContent(elements);
-    const layoutStructure = this.analyzeLayoutStructure(elements);
+    const layoutStructure = this.analyzeLayoutStructure(elements, allContent);
     
     const children: YOOthemeElement[] = [];
-    const rows = this.organizeContentIntoRows(allContent, layoutStructure);
+    const rows = this.organizeContentIntoRows(allContent, layoutStructure, elements);
 
     rows.forEach(row => {
       children.push({
         type: "row",
-        settings: {
-          gap: row.gap || "default",
-          alignment: row.alignment || "stretch"
+        props: {
+          width: "default",
+          gutter: row.gap || "default"
         },
         children: row.columns
       });
@@ -255,11 +260,12 @@ export class JoomlaConverter {
 
     return {
       type: "section",
-      settings: {
+      props: {
+        layout: "default",
         style: this.determineSectionStyle(elements, index),
         padding: this.determinePadding(elements),
         margin: "default",
-        background: this.extractBackgroundStyle(elements)
+        vertical_align: "top"
       },
       children
     };
@@ -391,77 +397,117 @@ export class JoomlaConverter {
     return content;
   }
 
-  private static analyzeLayoutStructure(elements: Element[]): any {
+  private static analyzeLayoutStructure(elements: Element[], content: any[]): any {
     const structure = {
       columns: 1,
       isGrid: false,
       isFlex: false,
       hasCards: false,
-      alignment: 'left'
+      alignment: 'left',
+      layout: 'single'
     };
 
-    elements.forEach(element => {
-      const computedStyle = window.getComputedStyle ? window.getComputedStyle(element) : null;
-      const className = element.className.toString();
-      
-      // Detect grid/flex layouts
-      if (className.includes('grid') || className.includes('col-')) {
+    if (elements.length === 0) {
+      return structure;
+    }
+
+    const primaryElement = elements[0];
+    const className = primaryElement.className.toString();
+
+    // Check for common grid/flexbox framework classes
+    const isBootstrapRow = className.includes('row');
+    const isTailwindGrid = className.includes('grid');
+
+    if (isBootstrapRow) {
+      const directChildrenCols = Array.from(primaryElement.children).filter(child =>
+        child.className.toString().includes('col-')
+      );
+      if (directChildrenCols.length > 1) {
+        structure.columns = Math.min(directChildrenCols.length, 4);
+        structure.layout = 'multi-column';
         structure.isGrid = true;
-        const colMatches = className.match(/col-(\d+)|grid-cols-(\d+)/);
-        if (colMatches) {
-          structure.columns = Math.max(structure.columns, parseInt(colMatches[1] || colMatches[2]));
-        }
+        return structure;
       }
-      
-      if (className.includes('flex') || className.includes('row')) {
+    }
+
+    if (isTailwindGrid) {
+      const gridColsMatch = className.match(/grid-cols-(\d+)/);
+      if (gridColsMatch && parseInt(gridColsMatch[1]) > 1) {
+        structure.columns = Math.min(parseInt(gridColsMatch[1]), 4);
+        structure.layout = 'multi-column';
+        structure.isGrid = true;
+        return structure;
+      }
+    }
+
+    // Generic check for multiple significant direct children
+    const significantChildren = Array.from(primaryElement.children).filter(child =>
+      this.hasSignificantContent(child) && (child.tagName.toLowerCase() === 'div' || child.tagName.toLowerCase() === 'article' || child.tagName.toLowerCase() === 'section')
+    );
+
+    if (significantChildren.length > 1 && significantChildren.length <= 4) {
+      structure.columns = significantChildren.length;
+      structure.layout = 'multi-column';
+      if (className.includes('flex')) {
         structure.isFlex = true;
       }
-      
-      if (className.includes('card') || className.includes('panel')) {
-        structure.hasCards = true;
+      if (className.includes('grid')) {
+        structure.isGrid = true;
       }
-
-      // Count direct children as potential columns
-      const directChildren = Array.from(element.children).filter(child => 
-        this.hasSignificantContent(child)
-      );
-      structure.columns = Math.max(structure.columns, Math.min(directChildren.length, 4));
-    });
+      return structure;
+    }
 
     return structure;
   }
 
-  private static organizeContentIntoRows(content: any[], structure: any): any[] {
-    const rows: any[] = [];
-    const itemsPerRow = structure.columns;
-    
-    for (let i = 0; i < content.length; i += itemsPerRow) {
-      const rowContent = content.slice(i, i + itemsPerRow);
-      const columns = rowContent.map((item, colIndex) => ({
-        type: "column",
-        settings: { 
-          width: `${100 / Math.max(rowContent.length, 1)}%`,
-          alignment: structure.alignment
-        },
-        children: [this.convertContentToYOOtheme(item)]
-      }));
+  private static organizeContentIntoRows(content: any[], structure: any, originalElements: Element[]): any[] {
+    if (structure.layout === 'multi-column' && originalElements.length > 0) {
+      const container = originalElements[0];
+      const columnElements = Array.from(container.children).filter(child =>
+        this.hasSignificantContent(child)
+      );
 
-      rows.push({
-        columns,
-        gap: structure.isGrid ? "large" : "default",
-        alignment: structure.isFlex ? "center" : "stretch"
-      });
+      if (columnElements.length === structure.columns) {
+        const columns = columnElements.map(colEl => {
+          const columnContent = this.extractComprehensiveContent([colEl]);
+          return {
+            type: "column",
+            props: {
+              width: this.getColumnWidth(structure.columns)
+            },
+            children: columnContent.map(item => this.convertContentToYOOtheme(item))
+          };
+        });
+
+        return [{
+          columns,
+          gap: structure.isGrid ? "large" : "default"
+        }];
+      }
     }
+    
+    // Fallback to single column layout
+    const singleColumn = {
+      type: "column",
+      props: {
+        width: "1-1"
+      },
+      children: content.map(item => this.convertContentToYOOtheme(item))
+    };
 
-    return rows.length > 0 ? rows : [{
-      columns: [{
-        type: "column",
-        settings: { width: "100%" },
-        children: content.map(item => this.convertContentToYOOtheme(item))
-      }],
-      gap: "default",
-      alignment: "stretch"
+    return [{
+      columns: [singleColumn],
+      gap: "default"
     }];
+  }
+
+  private static getColumnWidth(columnCount: number): string {
+    switch (columnCount) {
+      case 2: return "1-2";
+      case 3: return "1-3";
+      case 4: return "1-4";
+      default: return "1-1";
+    }
   }
 
   private static convertContentToYOOtheme(item: any): YOOthemeElement {
@@ -469,18 +515,18 @@ export class JoomlaConverter {
       case 'heading':
         return {
           type: "heading",
-          settings: {
+          props: {
             content: item.content,
-            tag: item.tag,
-            style: item.level <= 2 ? "primary" : "default",
-            margin: "small"
+            heading_element: item.tag,
+            heading_style: item.level <= 2 ? "h1" : "default",
+            margin: "default"
           }
         };
       
       case 'text':
         return {
           type: "text",
-          settings: {
+          props: {
             content: item.content,
             margin: "default"
           }
@@ -489,55 +535,62 @@ export class JoomlaConverter {
       case 'image':
         return {
           type: "image",
-          settings: {
+          props: {
             image: item.src,
-            alt: item.alt,
-            width: item.width || "auto",
-            height: item.height || "auto",
-            border: "rounded"
+            image_alt: item.alt,
+            image_width: item.width || "",
+            image_height: item.height || "",
+            border_radius: "default",
+            margin: "default"
           }
         };
       
       case 'list':
         return {
           type: "list",
-          settings: {
-            items: item.items,
-            style: item.ordered ? "numbered" : "bullet",
-            marker: "default"
+          props: {
+            list_style: item.ordered ? "decimal" : "disc",
+            content: item.items.map((listItem: string) => ({ content: listItem })),
+            margin: "default"
           }
         };
       
       case 'button':
         return {
           type: "button",
-          settings: {
+          props: {
             content: item.content,
             link: item.href,
             style: item.style,
-            size: "default"
+            size: "default",
+            margin: "default"
           }
         };
       
       case 'form':
         return {
           type: "html",
-          settings: {
+          props: {
             content: `<form action="${item.action}" method="${item.method}">
               ${item.inputs.map((input: any) => 
-                `<input type="${input.type}" name="${input.name}" placeholder="${input.placeholder}" ${input.required ? 'required' : ''}>`
+                `<div class="uk-margin"><input class="uk-input" type="${input.type}" name="${input.name}" placeholder="${input.placeholder}" ${input.required ? 'required' : ''}></div>`
               ).join('\n')}
-            </form>`
+              <button class="uk-button uk-button-primary" type="submit">Submit</button>
+            </form>`,
+            margin: "default"
           }
         };
       
       case 'table':
         return {
           type: "table",
-          settings: {
-            headers: item.headers,
-            rows: item.rows,
-            style: "striped"
+          props: {
+            table_style: "striped",
+            content: {
+              head: [item.headers],
+              body: item.rows
+            },
+            margin: "default"
           }
         };
       
@@ -545,18 +598,20 @@ export class JoomlaConverter {
       case 'iframe':
         return {
           type: "video",
-          settings: {
-            source: item.src,
-            width: item.width || "100%",
-            height: item.height || "auto"
+          props: {
+            video: item.src,
+            video_width: item.width || "1920",
+            video_height: item.height || "1080",
+            margin: "default"
           }
         };
       
       default:
         return {
           type: "html",
-          settings: {
-            content: item.content || ''
+          props: {
+            content: item.content || '',
+            margin: "default"
           }
         };
     }
@@ -569,10 +624,10 @@ export class JoomlaConverter {
       el.classList.toString().includes('jumbotron')
     );
     
-    if (hasHero) return "hero";
-    if (index === 0) return "primary";
-    if (index % 2 === 0) return "default";
-    return "muted";
+    if (hasHero) return "primary";
+    if (index === 0) return "default";
+    if (index % 2 === 0) return "muted";
+    return "default";
   }
 
   private static determinePadding(elements: Element[]): string {
@@ -617,55 +672,40 @@ export class JoomlaConverter {
     }));
 
     return {
-      type: "footer",
-      settings: {
+      type: "section",
+      props: {
+        layout: "default",
         style: "secondary",
-        padding: "default"
+        padding: "default",
+        vertical_align: "top"
       },
       children: [
         {
           type: "row",
-          settings: {},
+          props: {
+            width: "default"
+          },
           children: [
             {
               type: "column",
-              settings: { width: "100%" },
+              props: {
+                width: "1-1"
+              },
               children: [
                 {
                   type: "text",
-                  settings: {
+                  props: {
                     content: footerText,
-                    align: "center"
+                    text_align: "center",
+                    margin: "default"
                   }
-                },
-                ...(links.length > 0 ? [{
-                  type: "menu",
-                  settings: {
-                    style: "footer",
-                    items: links
-                  }
-                }] : [])
+                }
               ]
             }
           ]
         }
       ]
     };
-  }
-
-  private static determineColumnCount(element: Element): number {
-    const flexElements = element.querySelectorAll('[class*="flex"], [class*="grid"], [class*="col"]');
-    const directChildren = element.children.length;
-    
-    if (flexElements.length > 0) {
-      return Math.min(flexElements.length, 3);
-    }
-    
-    if (directChildren > 3) {
-      return 2;
-    }
-    
-    return 1;
   }
 
   private static extractAssets(html: string): { images: string[]; styles: string } {
