@@ -81,7 +81,7 @@ export const JoomlaConverter: React.FC = () => {
   const downloadJson = () => {
     if (!conversionResult?.data) return;
 
-    const blob = new Blob([JSON.stringify(conversionResult.data, null, 2)], {
+    const blob = new Blob([JSON.stringify(conversionResult.data)], {
       type: 'application/json'
     });
     const url = URL.createObjectURL(blob);
@@ -318,7 +318,7 @@ export const JoomlaConverter: React.FC = () => {
                     <div className="space-y-2">
                       <Label className="text-sm font-medium">Preview JSON Structure</Label>
                       <Textarea
-                        value={JSON.stringify(conversionResult.data, null, 2)}
+                        value={JSON.stringify(conversionResult.data)}
                         readOnly
                         className="h-40 font-mono text-xs"
                       />
