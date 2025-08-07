@@ -46,8 +46,9 @@ export class JoomlaConverter {
     const elements = this.parseHtmlToYOOthemeElements(html);
     
     // Convert elements to YOOtheme sections format
-    const sections = elements.map(element => ({
+    const sections = elements.map((element, index) => ({
       "type": "section",
+      "name": `section_${index + 1}`,
       "props": {
         "style": "default",
         "padding": "default",
@@ -55,6 +56,7 @@ export class JoomlaConverter {
       },
       "children": [{
         "type": element.name,
+        "name": element.name,
         "props": element.defaults,
         "children": element.placeholder.children
       }]
