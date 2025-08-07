@@ -41,9 +41,30 @@ interface WebsiteData {
 }
 
 export class JoomlaConverter {
-  static convertWebsiteToJoomla(data: WebsiteData): YOOthemePageBuilderElement[] {
+  static convertWebsiteToJoomla(data: WebsiteData): any {
     const { html } = data;
-    return this.parseHtmlToYOOthemeElements(html);
+    const elements = this.parseHtmlToYOOthemeElements(html);
+    
+    // Convert elements to YOOtheme sections format
+    const sections = elements.map(element => ({
+      "type": "section",
+      "props": {
+        "style": "default",
+        "padding": "default",
+        "margin": "default"
+      },
+      "children": [{
+        "type": element.name,
+        "props": element.defaults,
+        "children": element.placeholder.children
+      }]
+    }));
+    
+    // Return YOOtheme Page Builder compatible structure
+    return {
+      "type": "layout",
+      "children": sections
+    };
   }
 
   private static parseHtmlToYOOthemeElements(html: string): YOOthemePageBuilderElement[] {
