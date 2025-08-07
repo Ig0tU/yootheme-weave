@@ -60,11 +60,14 @@ export class FirecrawlService {
       }
 
       const response = await this.firecrawlApp.crawlUrl(url, {
-        limit: 1,
+        limit: 50,
         scrapeOptions: {
           formats: ['markdown', 'html'],
-          waitFor: 5000,
-          onlyMainContent: false
+          waitFor: 10000,
+          onlyMainContent: false,
+          includeTags: ['title', 'meta', 'header', 'nav', 'main', 'section', 'article', 'aside', 'footer', 'div', 'span', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'img', 'a', 'ul', 'ol', 'li', 'form', 'input', 'button', 'table', 'video', 'iframe'],
+          excludeTags: ['script', 'style', 'noscript'],
+          removeBase64Images: false
         }
       }) as ApiResponse;
 
